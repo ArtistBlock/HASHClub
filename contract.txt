@@ -1,0 +1,325 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.30;
+
+interface IEditionStake {
+    function getStakeInfo(address _staker) external view returns (
+        uint256[] memory,
+        uint256[] memory,
+        uint256 _totalRewards
+    );
+}
+
+interface IERC721Receiver {
+    function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data) external returns (bytes4);
+}
+
+contract HashAchievementNFTs {
+    string public constant name = "HASH Achievers Club";
+    string public constant symbol = "HASHAC";
+
+    address public constant STAKING_CONTRACT = 0xBBc4f75874930EB4d8075FCB3f48af2535A8E848;
+    uint256 public constant TRANSFER_UNLOCK_TIME = 1860041157; // Dec 10, 2028 00:00:00 UTC
+
+    uint256 public constant DOLPHIN_HASH = 1_000 * 1e18;
+    uint256 public constant SHARK_HASH = 5_000 * 1e18;  
+    uint256 public constant WHALE_HASH = 25_000 * 1e18;
+
+    string private constant DOLPHIN_URI = "https://bafkreibslmgaovzo24fpa3nulmaak3qfiwcfbba4uhcxx4m5me3aeypxd4.ipfs.dweb.link/";
+    string private constant SHARK_URI   = "https://bafkreib4kaiiqkbisq3lt7gxtwph7yovynobsxcbtnubdwcafccz2wdekm.ipfs.dweb.link/";
+    string private constant WHALE_URI   = "https://bafkreif2mmnb37tf33fso4ruz6spzzbxjjptznghfkqk7aam3fqusvvtgy.ipfs.dweb.link/";
+
+    enum Tier { None, Dolphin, Shark, Whale }
+    
+    // --- ERC-721 Storage ---
+    mapping(uint256 => address) private _owners;
+    mapping(address => uint256) private _balances;
+    mapping(uint256 => address) private _tokenApprovals;
+    mapping(address => mapping(address => bool)) private _operatorApprovals;
+    mapping(address => mapping(Tier => bool)) public hasTier;
+    mapping(uint256 => Tier) private _tokenTier;
+    mapping(address => uint256[]) private _ownedTokens;
+    uint256[] private _allTokens;
+    uint256 private _tokenIdCounter = 1;
+
+    // --- Rewards Tracking (DECENTRALIZED & SAFE) ---
+    mapping(address => uint256) public lastStakingBalance;
+    mapping(address => uint256) public totalEarnedRewards;
+
+    // --- Counters ---
+    uint256 public dolphinCount;
+    uint256 public sharkCount;
+    uint256 public whaleCount;
+
+    // --- Events ---
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+    event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
+    event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
+    event RewardsSynced(address indexed user, uint256 totalEarned, uint256 added);
+    event TierMinted(address indexed user, Tier tier, uint256 tokenId);
+
+    // ==================== DECENTRALIZED REWARDS TRACKING ====================
+
+    /**
+     * @dev Синхронизирует награды ТОЛЬКО путем чтения из staking контракта
+     * НЕТ пользовательского ввода - НЕТ накруток!
+     */
+    function syncRewards() external {
+        (, , uint256 currentStakingBalance) = IEditionStake(STAKING_CONTRACT).getStakeInfo(msg.sender);
+        uint256 lastBalance = lastStakingBalance[msg.sender];
+        
+        // 🔒 ЕДИНСТВЕННАЯ логика: если баланс в staking УВЕЛИЧИЛСЯ - добавляем разницу
+        if (currentStakingBalance > lastBalance) {
+            uint256 newlyEarned = currentStakingBalance - lastBalance;
+            totalEarnedRewards[msg.sender] += newlyEarned;
+            lastStakingBalance[msg.sender] = currentStakingBalance;
+            
+            emit RewardsSynced(msg.sender, totalEarnedRewards[msg.sender], newlyEarned);
+        }
+    }
+
+    /**
+     * @dev Минт NFT с ДВОЙНОЙ проверкой
+     */
+    function mintDolphin() external { 
+        _mintTier(Tier.Dolphin, DOLPHIN_HASH, "Need 1,000+ earned HASH"); 
+    }
+    
+    function mintShark() external { 
+        _mintTier(Tier.Shark, SHARK_HASH, "Need 5,000+ earned HASH"); 
+    }
+    
+    function mintWhale() external { 
+        _mintTier(Tier.Whale, WHALE_HASH, "Need 25,000+ earned HASH"); 
+    }
+
+    function _mintTier(Tier tier, uint256 threshold, string memory err) internal {
+        require(!hasTier[msg.sender][tier], "Already minted this tier");
+        
+        // 🔒 ДВОЙНАЯ ДЕЦЕНТРАЛИЗОВАННАЯ ПРОВЕРКА:
+        
+        // 1. Проверяем staking контракт НАПРЯМУЮ
+        (, , uint256 currentStakingBalance) = IEditionStake(STAKING_CONTRACT).getStakeInfo(msg.sender);
+        require(currentStakingBalance >= threshold, "Staking: Not enough total rewards");
+        
+        // 2. Автосинхронизация при минте
+        if (currentStakingBalance > lastStakingBalance[msg.sender]) {
+            uint256 newlyEarned = currentStakingBalance - lastStakingBalance[msg.sender];
+            totalEarnedRewards[msg.sender] += newlyEarned;
+            lastStakingBalance[msg.sender] = currentStakingBalance;
+        }
+        
+        // 3. Финальная проверка наших записей
+        require(totalEarnedRewards[msg.sender] >= threshold, err);
+
+        // Минт NFT
+        hasTier[msg.sender][tier] = true;
+        uint256 tokenId = _tokenIdCounter++;
+
+        _owners[tokenId] = msg.sender;
+        _balances[msg.sender]++;
+        _tokenTier[tokenId] = tier;
+        _ownedTokens[msg.sender].push(tokenId);
+        _allTokens.push(tokenId);
+
+        if (tier == Tier.Dolphin) dolphinCount++;
+        else if (tier == Tier.Shark) sharkCount++;
+        else if (tier == Tier.Whale) whaleCount++;
+
+        emit Transfer(address(0), msg.sender, tokenId);
+        emit TierMinted(msg.sender, tier, tokenId);
+    }
+
+    // ==================== VIEW FUNCTIONS ====================
+
+    function getUserStats(address user) external view returns (
+        uint256 totalEarned,
+        uint256 currentStakingBalance,
+        uint256 lastSyncedBalance,
+        bool dolphinEligible,
+        bool sharkEligible,
+        bool whaleEligible,
+        bool dolphinMinted,
+        bool sharkMinted,
+        bool whaleMinted
+    ) {
+        (, , uint256 stakingBalance) = IEditionStake(STAKING_CONTRACT).getStakeInfo(user);
+        
+        totalEarned = totalEarnedRewards[user];
+        currentStakingBalance = stakingBalance;
+        lastSyncedBalance = lastStakingBalance[user];
+        
+        dolphinEligible = totalEarned >= DOLPHIN_HASH;
+        sharkEligible = totalEarned >= SHARK_HASH;
+        whaleEligible = totalEarned >= WHALE_HASH;
+        
+        dolphinMinted = hasTier[user][Tier.Dolphin];
+        sharkMinted = hasTier[user][Tier.Shark];
+        whaleMinted = hasTier[user][Tier.Whale];
+    }
+
+    function getUserProgress(address user) external view returns (
+        uint256 totalEarned,
+        bool dolphin,
+        bool shark,
+        bool whale
+    ) {
+        totalEarned = totalEarnedRewards[user];
+        dolphin = hasTier[user][Tier.Dolphin];
+        shark = hasTier[user][Tier.Shark];
+        whale = hasTier[user][Tier.Whale];
+    }
+
+    // ==================== ERC-721 STANDARD ====================
+
+    function balanceOf(address owner) public view returns (uint256) {
+        require(owner != address(0), "zero address");
+        return _balances[owner];
+    }
+
+    function ownerOf(uint256 tokenId) public view returns (address) {
+        address owner = _owners[tokenId];
+        require(owner != address(0), "not exist");
+        return owner;
+    }
+
+    function approve(address to, uint256 tokenId) public {
+        _checkTransferLock();
+        address owner = ownerOf(tokenId);
+        require(to != owner, "approve to owner");
+        require(msg.sender == owner || isApprovedForAll(owner, msg.sender), "not allowed");
+        _tokenApprovals[tokenId] = to;
+        emit Approval(owner, to, tokenId);
+    }
+
+    function getApproved(uint256 tokenId) public view returns (address) {
+        require(_owners[tokenId] != address(0), "not exist");
+        return _tokenApprovals[tokenId];
+    }
+
+    function setApprovalForAll(address operator, bool approved) public {
+        _checkTransferLock();
+        _operatorApprovals[msg.sender][operator] = approved;
+        emit ApprovalForAll(msg.sender, operator, approved);
+    }
+
+    function isApprovedForAll(address owner, address operator) public view returns (bool) {
+        return _operatorApprovals[owner][operator];
+    }
+
+    function transferFrom(address from, address to, uint256 tokenId) public {
+        _checkTransferLock();
+        require(_isApprovedOrOwner(msg.sender, tokenId), "not allowed");
+        require(ownerOf(tokenId) == from, "wrong owner");
+        require(to != address(0), "zero");
+
+        _clearApproval(tokenId);
+        _balances[from]--;
+        _balances[to]++;
+        _owners[tokenId] = to;
+        _removeTokenFromOwnerEnumeration(from, tokenId);
+        _ownedTokens[to].push(tokenId);
+
+        emit Transfer(from, to, tokenId);
+    }
+
+    function safeTransferFrom(address from, address to, uint256 tokenId) public {
+        safeTransferFrom(from, to, tokenId, "");
+    }
+
+    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public {
+        _checkTransferLock();
+        require(_isApprovedOrOwner(msg.sender, tokenId), "not allowed");
+        require(ownerOf(tokenId) == from, "wrong owner");
+        require(to != address(0), "zero");
+
+        _clearApproval(tokenId);
+        _balances[from]--;
+        _balances[to]++;
+        _owners[tokenId] = to;
+        _removeTokenFromOwnerEnumeration(from, tokenId);
+        _ownedTokens[to].push(tokenId);
+
+        emit Transfer(from, to, tokenId);
+        require(_checkOnERC721Received(msg.sender, from, to, tokenId, data), "unsafe recipient");
+    }
+
+    function tokenURI(uint256 tokenId) public view returns (string memory) {
+        require(_owners[tokenId] != address(0), "not exist");
+        Tier t = _tokenTier[tokenId];
+        if (t == Tier.Dolphin) return DOLPHIN_URI;
+        if (t == Tier.Shark) return SHARK_URI;
+        if (t == Tier.Whale) return WHALE_URI;
+        revert("invalid tier");
+    }
+
+    // ==================== ENUMERABLE ====================
+
+    function totalSupply() public view returns (uint256) { 
+        return _allTokens.length; 
+    }
+    
+    function tokenByIndex(uint256 index) public view returns (uint256) { 
+        require(index < _allTokens.length, "index out of bounds");
+        return _allTokens[index]; 
+    }
+    
+    function tokenOfOwnerByIndex(address owner, uint256 index) public view returns (uint256) { 
+        require(index < _ownedTokens[owner].length, "index out of bounds");
+        return _ownedTokens[owner][index]; 
+    }
+
+    // ==================== INTERNAL HELPERS ====================
+
+    function _checkTransferLock() internal view {
+        require(block.timestamp >= TRANSFER_UNLOCK_TIME, "Soulbound: Transfers unlock Dec 10, 2028");
+    }
+
+    function _isApprovedOrOwner(address spender, uint256 tokenId) internal view returns (bool) {
+        address owner = _owners[tokenId];
+        return (spender == owner || getApproved(tokenId) == spender || isApprovedForAll(owner, spender));
+    }
+
+    function _clearApproval(uint256 tokenId) internal {
+        if (_tokenApprovals[tokenId] != address(0)) {
+            delete _tokenApprovals[tokenId];
+        }
+    }
+
+    function _removeTokenFromOwnerEnumeration(address from, uint256 tokenId) private {
+        uint256 lastTokenIndex = _ownedTokens[from].length - 1;
+        for (uint256 i = 0; i <= lastTokenIndex; i++) {
+            if (_ownedTokens[from][i] == tokenId) {
+                if (i != lastTokenIndex) {
+                    _ownedTokens[from][i] = _ownedTokens[from][lastTokenIndex];
+                }
+                _ownedTokens[from].pop();
+                return;
+            }
+        }
+        revert("Token not found");
+    }
+
+    function _checkOnERC721Received(address operator, address from, address to, uint256 tokenId, bytes memory data) private returns (bool) {
+        if (!_isContract(to)) return true;
+        try IERC721Receiver(to).onERC721Received(operator, from, tokenId, data) returns (bytes4 retval) {
+            return retval == IERC721Receiver.onERC721Received.selector;
+        } catch (bytes memory reason) {
+            if (reason.length == 0) revert("unsafe recipient");
+            assembly {
+                revert(add(32, reason), mload(reason))
+            }
+        }
+    }
+
+    function _isContract(address account) internal view returns (bool) {
+        return account.code.length > 0;
+    }
+
+    // ==================== SUPPORTS INTERFACE ====================
+
+    function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
+        return interfaceId == 0x01ffc9a7 || // ERC165
+               interfaceId == 0x80ac58cd || // ERC721
+               interfaceId == 0x5b5e139f;   // ERC721Metadata
+    }
+}
