@@ -14,15 +14,16 @@ interface IERC721Receiver {
 }
 
 contract HashAchievementNFTs {
-    string public constant name = "HASH Achievers Club";
-    string public constant symbol = "HASHAC";
+    string public constant name = "Mining Hash Club";
+    string public constant symbol = "CLUB";
 
     address public constant STAKING_CONTRACT = 0xBBc4f75874930EB4d8075FCB3f48af2535A8E848;
-    uint256 public constant TRANSFER_UNLOCK_TIME = 1860041157; // Dec 10, 2028 00:00:00 UTC
+    uint256 public constant TRANSFER_UNLOCK_TIME = 1891572042; 
 
-    uint256 public constant DOLPHIN_HASH = 1_000 * 1e18;
-    uint256 public constant SHARK_HASH = 5_000 * 1e18;  
-    uint256 public constant WHALE_HASH = 25_000 * 1e18;
+    // 🎯 Упрощенные пороги (в wei для точности)
+    uint256 public constant DOLPHIN_HASH = 1000 ether;  // 1,000 HASH
+    uint256 public constant SHARK_HASH = 5000 ether;    // 5,000 HASH  
+    uint256 public constant WHALE_HASH = 25000 ether;   // 25,000 HASH
 
     string private constant DOLPHIN_URI = "https://bafkreibslmgaovzo24fpa3nulmaak3qfiwcfbba4uhcxx4m5me3aeypxd4.ipfs.dweb.link/";
     string private constant SHARK_URI   = "https://bafkreib4kaiiqkbisq3lt7gxtwph7yovynobsxcbtnubdwcafccz2wdekm.ipfs.dweb.link/";
@@ -30,97 +31,55 @@ contract HashAchievementNFTs {
 
     enum Tier { None, Dolphin, Shark, Whale }
     
-    // --- ERC-721 Storage ---
+    // 🎯 Упрощенное хранилище
     mapping(uint256 => address) private _owners;
     mapping(address => uint256) private _balances;
-    mapping(uint256 => address) private _tokenApprovals;
-    mapping(address => mapping(address => bool)) private _operatorApprovals;
     mapping(address => mapping(Tier => bool)) public hasTier;
     mapping(uint256 => Tier) private _tokenTier;
-    mapping(address => uint256[]) private _ownedTokens;
-    uint256[] private _allTokens;
+
     uint256 private _tokenIdCounter = 1;
-
-    // --- Rewards Tracking (DECENTRALIZED & SAFE) ---
-    mapping(address => uint256) public lastStakingBalance;
-    mapping(address => uint256) public totalEarnedRewards;
-
-    // --- Counters ---
     uint256 public dolphinCount;
     uint256 public sharkCount;
     uint256 public whaleCount;
 
-    // --- Events ---
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
-    event Approval(address indexed owner, address indexed approved, uint256 indexed tokenId);
-    event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
-    event RewardsSynced(address indexed user, uint256 totalEarned, uint256 added);
     event TierMinted(address indexed user, Tier tier, uint256 tokenId);
 
-    // ==================== DECENTRALIZED REWARDS TRACKING ====================
+    // 🎯 ОСНОВНЫЕ ФУНКЦИИ ДЛЯ ИНТЕРФЕЙСА
 
     /**
-     * @dev Синхронизирует награды ТОЛЬКО путем чтения из staking контракта
-     * НЕТ пользовательского ввода - НЕТ накруток!
-     */
-    function syncRewards() external {
-        (, , uint256 currentStakingBalance) = IEditionStake(STAKING_CONTRACT).getStakeInfo(msg.sender);
-        uint256 lastBalance = lastStakingBalance[msg.sender];
-        
-        // 🔒 ЕДИНСТВЕННАЯ логика: если баланс в staking УВЕЛИЧИЛСЯ - добавляем разницу
-        if (currentStakingBalance > lastBalance) {
-            uint256 newlyEarned = currentStakingBalance - lastBalance;
-            totalEarnedRewards[msg.sender] += newlyEarned;
-            lastStakingBalance[msg.sender] = currentStakingBalance;
-            
-            emit RewardsSynced(msg.sender, totalEarnedRewards[msg.sender], newlyEarned);
-        }
-    }
-
-    /**
-     * @dev Минт NFT с ДВОЙНОЙ проверкой
+     * @dev Минт NFT дельфина - простая проверка
      */
     function mintDolphin() external { 
-        _mintTier(Tier.Dolphin, DOLPHIN_HASH, "Need 1,000+ earned HASH"); 
+        _mintTier(Tier.Dolphin, DOLPHIN_HASH); 
     }
     
     function mintShark() external { 
-        _mintTier(Tier.Shark, SHARK_HASH, "Need 5,000+ earned HASH"); 
+        _mintTier(Tier.Shark, SHARK_HASH); 
     }
     
     function mintWhale() external { 
-        _mintTier(Tier.Whale, WHALE_HASH, "Need 25,000+ earned HASH"); 
+        _mintTier(Tier.Whale, WHALE_HASH); 
     }
 
-    function _mintTier(Tier tier, uint256 threshold, string memory err) internal {
-        require(!hasTier[msg.sender][tier], "Already minted this tier");
+    /**
+     * @dev Упрощенная логика минта
+     */
+    function _mintTier(Tier tier, uint256 threshold) internal {
+        require(!hasTier[msg.sender][tier], "Already minted");
         
-        // 🔒 ДВОЙНАЯ ДЕЦЕНТРАЛИЗОВАННАЯ ПРОВЕРКА:
+        // 🎯 Прямая проверка staking контракта
+        uint256 userRewards = _getUserRewards(msg.sender);
+        require(userRewards >= threshold, "Not enough HASH");
         
-        // 1. Проверяем staking контракт НАПРЯМУЮ
-        (, , uint256 currentStakingBalance) = IEditionStake(STAKING_CONTRACT).getStakeInfo(msg.sender);
-        require(currentStakingBalance >= threshold, "Staking: Not enough total rewards");
-        
-        // 2. Автосинхронизация при минте
-        if (currentStakingBalance > lastStakingBalance[msg.sender]) {
-            uint256 newlyEarned = currentStakingBalance - lastStakingBalance[msg.sender];
-            totalEarnedRewards[msg.sender] += newlyEarned;
-            lastStakingBalance[msg.sender] = currentStakingBalance;
-        }
-        
-        // 3. Финальная проверка наших записей
-        require(totalEarnedRewards[msg.sender] >= threshold, err);
-
-        // Минт NFT
         hasTier[msg.sender][tier] = true;
         uint256 tokenId = _tokenIdCounter++;
 
         _owners[tokenId] = msg.sender;
         _balances[msg.sender]++;
         _tokenTier[tokenId] = tier;
-        _ownedTokens[msg.sender].push(tokenId);
-        _allTokens.push(tokenId);
 
+        // Обновляем счетчики
         if (tier == Tier.Dolphin) dolphinCount++;
         else if (tier == Tier.Shark) sharkCount++;
         else if (tier == Tier.Whale) whaleCount++;
@@ -129,197 +88,169 @@ contract HashAchievementNFTs {
         emit TierMinted(msg.sender, tier, tokenId);
     }
 
-    // ==================== VIEW FUNCTIONS ====================
-
-    function getUserStats(address user) external view returns (
-        uint256 totalEarned,
-        uint256 currentStakingBalance,
-        uint256 lastSyncedBalance,
-        bool dolphinEligible,
-        bool sharkEligible,
-        bool whaleEligible,
-        bool dolphinMinted,
-        bool sharkMinted,
-        bool whaleMinted
-    ) {
-        (, , uint256 stakingBalance) = IEditionStake(STAKING_CONTRACT).getStakeInfo(user);
-        
-        totalEarned = totalEarnedRewards[user];
-        currentStakingBalance = stakingBalance;
-        lastSyncedBalance = lastStakingBalance[user];
-        
-        dolphinEligible = totalEarned >= DOLPHIN_HASH;
-        sharkEligible = totalEarned >= SHARK_HASH;
-        whaleEligible = totalEarned >= WHALE_HASH;
-        
-        dolphinMinted = hasTier[user][Tier.Dolphin];
-        sharkMinted = hasTier[user][Tier.Shark];
-        whaleMinted = hasTier[user][Tier.Whale];
+    /**
+     * @dev Получение наград пользователя
+     */
+    function _getUserRewards(address user) internal view returns (uint256) {
+        (, , uint256 totalRewards) = IEditionStake(STAKING_CONTRACT).getStakeInfo(user);
+        return totalRewards;
     }
 
-    function getUserProgress(address user) external view returns (
-        uint256 totalEarned,
-        bool dolphin,
-        bool shark,
-        bool whale
+    // 🎯 УПРОЩЕННЫЕ ФУНКЦИИ ДЛЯ ИНТЕРФЕЙСА
+
+    /**
+     * @dev Основная функция для интерфейса - возвращает ВСЕ данные
+     */
+    function getUserStatus(address user) external view returns (
+        uint256 earnedHASH,      // Сколько намайнил
+        bool dolphinAvailable,   // Может минтить дельфина
+        bool sharkAvailable,     // Может минтить акулу
+        bool whaleAvailable,     // Может минтить кита
+        bool hasDolphinNFT,      // Уже имеет дельфина
+        bool hasSharkNFT,        // Уже имеет акулу
+        bool hasWhaleNFT         // Уже имеет кита
     ) {
-        totalEarned = totalEarnedRewards[user];
-        dolphin = hasTier[user][Tier.Dolphin];
-        shark = hasTier[user][Tier.Shark];
-        whale = hasTier[user][Tier.Whale];
+        earnedHASH = _getUserRewards(user);
+        
+        dolphinAvailable = earnedHASH >= DOLPHIN_HASH && !hasTier[user][Tier.Dolphin];
+        sharkAvailable = earnedHASH >= SHARK_HASH && !hasTier[user][Tier.Shark];
+        whaleAvailable = earnedHASH >= WHALE_HASH && !hasTier[user][Tier.Whale];
+        
+        hasDolphinNFT = hasTier[user][Tier.Dolphin];
+        hasSharkNFT = hasTier[user][Tier.Shark];
+        hasWhaleNFT = hasTier[user][Tier.Whale];
     }
 
-    // ==================== ERC-721 STANDARD ====================
+    /**
+     * @dev Быстрая проверка для прогресс-бара
+     */
+    function getQuickStats(address user) external view returns (
+        uint256 earnedHASH,
+        string memory availableTiers
+    ) {
+        earnedHASH = _getUserRewards(user);
+        
+        if (earnedHASH >= WHALE_HASH) availableTiers = "WHALE_READY";
+        else if (earnedHASH >= SHARK_HASH) availableTiers = "SHARK_READY";
+        else if (earnedHASH >= DOLPHIN_HASH) availableTiers = "DOLPHIN_READY";
+        else availableTiers = "MINING";
+    }
+
+    /**
+     * @dev Проверка конкретного тира
+     */
+    function canMintTier(address user, Tier tier) external view returns (bool) {
+        uint256 earnedHASH = _getUserRewards(user);
+        
+        if (tier == Tier.Dolphin) return earnedHASH >= DOLPHIN_HASH && !hasTier[user][Tier.Dolphin];
+        if (tier == Tier.Shark) return earnedHASH >= SHARK_HASH && !hasTier[user][Tier.Shark];
+        if (tier == Tier.Whale) return earnedHASH >= WHALE_HASH && !hasTier[user][Tier.Whale];
+        return false;
+    }
+
+    // 🎯 ОСНОВНЫЕ ERC-721 ФУНКЦИИ
 
     function balanceOf(address owner) public view returns (uint256) {
-        require(owner != address(0), "zero address");
+        require(owner != address(0), "Invalid address");
         return _balances[owner];
     }
 
     function ownerOf(uint256 tokenId) public view returns (address) {
         address owner = _owners[tokenId];
-        require(owner != address(0), "not exist");
+        require(owner != address(0), "NFT doesn't exist");
         return owner;
     }
 
-    function approve(address to, uint256 tokenId) public {
-        _checkTransferLock();
-        address owner = ownerOf(tokenId);
-        require(to != owner, "approve to owner");
-        require(msg.sender == owner || isApprovedForAll(owner, msg.sender), "not allowed");
-        _tokenApprovals[tokenId] = to;
-        emit Approval(owner, to, tokenId);
-    }
-
-    function getApproved(uint256 tokenId) public view returns (address) {
-        require(_owners[tokenId] != address(0), "not exist");
-        return _tokenApprovals[tokenId];
-    }
-
-    function setApprovalForAll(address operator, bool approved) public {
-        _checkTransferLock();
-        _operatorApprovals[msg.sender][operator] = approved;
-        emit ApprovalForAll(msg.sender, operator, approved);
-    }
-
-    function isApprovedForAll(address owner, address operator) public view returns (bool) {
-        return _operatorApprovals[owner][operator];
-    }
-
-    function transferFrom(address from, address to, uint256 tokenId) public {
-        _checkTransferLock();
-        require(_isApprovedOrOwner(msg.sender, tokenId), "not allowed");
-        require(ownerOf(tokenId) == from, "wrong owner");
-        require(to != address(0), "zero");
-
-        _clearApproval(tokenId);
-        _balances[from]--;
-        _balances[to]++;
-        _owners[tokenId] = to;
-        _removeTokenFromOwnerEnumeration(from, tokenId);
-        _ownedTokens[to].push(tokenId);
-
-        emit Transfer(from, to, tokenId);
-    }
-
-    function safeTransferFrom(address from, address to, uint256 tokenId) public {
-        safeTransferFrom(from, to, tokenId, "");
-    }
-
-    function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) public {
-        _checkTransferLock();
-        require(_isApprovedOrOwner(msg.sender, tokenId), "not allowed");
-        require(ownerOf(tokenId) == from, "wrong owner");
-        require(to != address(0), "zero");
-
-        _clearApproval(tokenId);
-        _balances[from]--;
-        _balances[to]++;
-        _owners[tokenId] = to;
-        _removeTokenFromOwnerEnumeration(from, tokenId);
-        _ownedTokens[to].push(tokenId);
-
-        emit Transfer(from, to, tokenId);
-        require(_checkOnERC721Received(msg.sender, from, to, tokenId, data), "unsafe recipient");
-    }
-
     function tokenURI(uint256 tokenId) public view returns (string memory) {
-        require(_owners[tokenId] != address(0), "not exist");
+        require(_owners[tokenId] != address(0), "NFT doesn't exist");
         Tier t = _tokenTier[tokenId];
         if (t == Tier.Dolphin) return DOLPHIN_URI;
         if (t == Tier.Shark) return SHARK_URI;
         if (t == Tier.Whale) return WHALE_URI;
-        revert("invalid tier");
+        revert("Invalid tier");
     }
 
-    // ==================== ENUMERABLE ====================
+    // 🎯 БЕЗОПАСНЫЕ ТРАНСФЕРЫ (Soulbound до 2029)
 
-    function totalSupply() public view returns (uint256) { 
-        return _allTokens.length; 
-    }
-    
-    function tokenByIndex(uint256 index) public view returns (uint256) { 
-        require(index < _allTokens.length, "index out of bounds");
-        return _allTokens[index]; 
-    }
-    
-    function tokenOfOwnerByIndex(address owner, uint256 index) public view returns (uint256) { 
-        require(index < _ownedTokens[owner].length, "index out of bounds");
-        return _ownedTokens[owner][index]; 
+    function approve(address, uint256) public pure {
+        revert("Soulbound until 2029");
     }
 
-    // ==================== INTERNAL HELPERS ====================
+    function setApprovalForAll(address, bool) public pure {
+        revert("Soulbound until 2029");
+    }
+
+    function transferFrom(address, address, uint256) public pure {
+        revert("Soulbound until 2029");
+    }
+
+    function safeTransferFrom(address, address, uint256) public pure {
+        revert("Soulbound until 2029");
+    }
+
+    function safeTransferFrom(address, address, uint256, bytes memory) public pure {
+        revert("Soulbound until 2029");
+    }
 
     function _checkTransferLock() internal view {
-        require(block.timestamp >= TRANSFER_UNLOCK_TIME, "Soulbound: Transfers unlock Dec 10, 2028");
+        require(block.timestamp >= TRANSFER_UNLOCK_TIME, "Soulbound until 2029");
     }
+}
 
-    function _isApprovedOrOwner(address spender, uint256 tokenId) internal view returns (bool) {
-        address owner = _owners[tokenId];
-        return (spender == owner || getApproved(tokenId) == spender || isApprovedForAll(owner, spender));
-    }
 
-    function _clearApproval(uint256 tokenId) internal {
-        if (_tokenApprovals[tokenId] != address(0)) {
-            delete _tokenApprovals[tokenId];
-        }
-    }
+// 📱 Простой React компонент
+export function AchievementButtons({ wallet }) {
+  const ownerAddress = wallet.getAccount()?.address;
 
-    function _removeTokenFromOwnerEnumeration(address from, uint256 tokenId) private {
-        uint256 lastTokenIndex = _ownedTokens[from].length - 1;
-        for (uint256 i = 0; i <= lastTokenIndex; i++) {
-            if (_ownedTokens[from][i] == tokenId) {
-                if (i != lastTokenIndex) {
-                    _ownedTokens[from][i] = _ownedTokens[from][lastTokenIndex];
-                }
-                _ownedTokens[from].pop();
-                return;
-            }
-        }
-        revert("Token not found");
-    }
+  // 🎯 Один вызов - все данные
+  const { data: userStatus, refetch } = useReadContract({
+    contract: whaleContract,
+    method: "getUserStatus",
+    params: [ownerAddress || ""],
+  });
 
-    function _checkOnERC721Received(address operator, address from, address to, uint256 tokenId, bytes memory data) private returns (bool) {
-        if (!_isContract(to)) return true;
-        try IERC721Receiver(to).onERC721Received(operator, from, tokenId, data) returns (bytes4 retval) {
-            return retval == IERC721Receiver.onERC721Received.selector;
-        } catch (bytes memory reason) {
-            if (reason.length == 0) revert("unsafe recipient");
-            assembly {
-                revert(add(32, reason), mload(reason))
-            }
-        }
-    }
+  // 📊 Извлекаем данные
+  const [earnedHASH, dolphinAvailable, sharkAvailable, whaleAvailable, hasDolphin, hasShark, hasWhale] = userStatus || [];
 
-    function _isContract(address account) internal view returns (bool) {
-        return account.code.length > 0;
-    }
+  // 🎯 Функции минта
+  const { mutate: mintDolphin } = useSendAndConfirmTransaction();
+  const { mutate: mintShark } = useSendAndConfirmTransaction();
+  const { mutate: mintWhale } = useSendAndConfirmTransaction();
 
-    // ==================== SUPPORTS INTERFACE ====================
+  return (
+    <div className="achievements">
+      {/* 🐬 Дельфин */}
+      <button
+        onClick={() => mintDolphin(prepareContractCall(whaleContract, "mintDolphin")).then(refetch)}
+        disabled={!dolphinAvailable || hasDolphin}
+        className={dolphinAvailable ? "ready" : "locked"}
+      >
+        {hasDolphin ? "✅ Dolphin" : 
+         dolphinAvailable ? "🎯 Claim Dolphin" : 
+         `🐬 ${Number(earnedHASH/1e18)}/1000 HASH`}
+      </button>
 
-    function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
-        return interfaceId == 0x01ffc9a7 || // ERC165
-               interfaceId == 0x80ac58cd || // ERC721
-               interfaceId == 0x5b5e139f;   // ERC721Metadata
-    }
+      {/* 🦈 Акула */}
+      <button
+        onClick={() => mintShark(prepareContractCall(whaleContract, "mintShark")).then(refetch)}
+        disabled={!sharkAvailable || hasShark}
+        className={sharkAvailable ? "ready" : "locked"}
+      >
+        {hasShark ? "✅ Shark" : 
+         sharkAvailable ? "🎯 Claim Shark" : 
+         `🦈 ${Number(earnedHASH/1e18)}/5000 HASH`}
+      </button>
+
+      {/* 🐋 Кит */}
+      <button
+        onClick={() => mintWhale(prepareContractCall(whaleContract, "mintWhale")).then(refetch)}
+        disabled={!whaleAvailable || hasWhale}
+        className={whaleAvailable ? "ready" : "locked"}
+      >
+        {hasWhale ? "✅ Whale" : 
+         whaleAvailable ? "🎯 Claim Whale" : 
+         `🐋 ${Number(earnedHASH/1e18)}/25000 HASH`}
+      </button>
+    </div>
+  );
 }

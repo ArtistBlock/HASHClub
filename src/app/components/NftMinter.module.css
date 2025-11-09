@@ -1,0 +1,21 @@
+.errorText {
+    color: red;
+}
+
+.flexContainer {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.imageMarginRight {
+    margin-right: 10px;
+}
+
+.paragraphMarginLeft {
+    margin-left: 10px;
+}
+
+.horizontalRuleMargin {
+    margin: 10px 0;
+}

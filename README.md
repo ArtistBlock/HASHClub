@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# HASH Club Achievement NFTs
+
+This is a Next.js application that interacts with a smart contract on the blockchain to allow users to mint achievement NFTs based on their HASH earnings.
+
+## Technologies Used
+
+- [Next.js](https://nextjs.org/) - React framework for building user interfaces.
+- [React](https://reactjs.org/) - A JavaScript library for building user interfaces.
+- [TypeScript](https://www.typescriptlang.org/) - A typed superset of JavaScript that compiles to plain JavaScript.
+- [Thirdweb](https://thirdweb.com/) - A platform for building web3 applications.
+- [Ethers.js](https://ethers.io/) - A complete and compact library for interacting with the Ethereum Blockchain and its ecosystem.
+- [Tailwind CSS](https://tailwindcss.com/) - A utility-first CSS framework for rapid UI development.
 
 ## Getting Started
 
-First, run the development server:
+To get a local copy up and running follow these simple example steps.
+
+### Prerequisites
+
+- Node.js (v18.x or later)
+- npm, yarn, or pnpm
+
+### Installation
+
+1. Clone the repo
+   ```sh
+   git clone https://github.com/your_username/your_project_name.git
+   ```
+2. Install NPM packages
+   ```sh
+   npm install
+   ```
+3. Create a `.env.local` file in the root of the project and add your Thirdweb client ID:
+    ```
+    NEXT_PUBLIC_TW_CLIENT_ID=your_client_id
+    ```
+
+### Running the Application
+
+To run the application in a development environment, use the following command:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `src/app/`: This directory contains the main application files.
+  - `src/app/page.tsx`: The main page of the application.
+  - `src/app/layout.tsx`: The main layout of the application.
+  - `src/app/globals.css`: Global styles for the application.
+  - `src/app/abi.ts`: The ABI for the smart contract.
+  - `src/app/chain.ts`: The blockchain configuration.
+  - `src/app/client.ts`: The Thirdweb client configuration.
+  - `src/app/contract.ts`: The smart contract instance.
+  - `src/app/components/`: This directory contains the React components.
+    - `src/app/components/NftMinter.tsx`: The main component for minting NFTs.
+- `public/`: This directory contains static assets.
+- `utils/`: This directory contains utility functions.
+  - `utils/contracts.ts`: This file contains the smart contract address.
 
-## Learn More
+## Available Scripts
 
-To learn more about Next.js, take a look at the following resources:
+In the project directory, you can run:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `npm run dev`: Runs the app in the development mode.
+- `npm run build`: Builds the app for production to the `.next` folder.
+- `npm run start`: Starts the production server.
+- `npm run lint`: Lints the project files.
